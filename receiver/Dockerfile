@@ -5,5 +5,5 @@ WORKDIR /app
 
 COPY receiver.py .
 
-EXPOSE 9001/udp
+EXPOSE 9001/udp 9101/udp 9201/tcp
 CMD ["python", "receiver.py"]

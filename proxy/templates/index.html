@@ -8,8 +8,9 @@
   :root { color-scheme: light dark; }
   * { box-sizing: border-box; }
   body { font-family: system-ui, "PingFang SC", "Microsoft YaHei", sans-serif;
-         margin: 0 auto; max-width: 1080px; padding: 16px; line-height: 1.5; }
+         margin: 0 auto; max-width: 1160px; padding: 16px; line-height: 1.5; }
   h1 { font-size: 1.4rem; } h2 { font-size: 1.1rem; margin-bottom: 8px; }
+  h3 { font-size: .95rem; margin: 12px 0 6px; }
   .cards { display: flex; gap: 12px; flex-wrap: wrap; margin: 12px 0; }
   .card { border: 1px solid #8885; border-radius: 8px; padding: 10px 16px; min-width: 150px; }
   .card .label { font-size: .8rem; opacity: .7; }
@@ -17,19 +18,42 @@
   section { border: 1px solid #8885; border-radius: 8px; padding: 12px 16px; margin: 14px 0; }
   button { padding: 6px 14px; border-radius: 6px; border: 1px solid #8888; cursor: pointer; }
   button:disabled { opacity: .4; cursor: default; }
-  input { padding: 5px 8px; border-radius: 6px; border: 1px solid #8888; }
+  button.primary { background: #1565c0; color: #fff; border-color: #1565c0; }
+  button.danger { background: #c62828; color: #fff; border-color: #c62828; }
+  input, select { padding: 5px 8px; border-radius: 6px; border: 1px solid #8888; }
   .flash { padding: 8px 12px; border-radius: 6px; margin: 8px 0; }
   .flash.ok { background: #2e7d3233; border: 1px solid #2e7d32; }
   .flash.error { background: #c6282833; border: 1px solid #c62828; }
   table { border-collapse: collapse; width: 100%; font-size: .85rem; }
   th, td { border-bottom: 1px solid #8884; padding: 4px 8px; text-align: left;
-           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 260px; }
+           white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 300px; }
   th { opacity: .7; }
   .hint { font-size: .8rem; opacity: .7; margin: 6px 0 0; }
   .result-ok { color: #2e7d32; } .result-err { color: #c62828; }
   form .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 6px 0; }
   label { font-size: .85rem; }
   code { background: #8882; padding: 1px 5px; border-radius: 4px; }
+  .pill { display: inline-block; padding: 1px 10px; border-radius: 999px;
+          font-size: .8rem; border: 1px solid #8886; }
+  .pill.running { background: #2e7d3233; border-color: #2e7d32; color: #2e7d32; }
+  .pill.arming { background: #f9a82533; border-color: #f9a825; }
+  .pill.ended { background: #8883; }
+  .step-row, .sim-row { display: flex; gap: 8px; align-items: center; margin: 4px 0; }
+  .step-row input[type=number] { width: 80px; }
+  .step-row .idx { width: 48px; font-weight: 700; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid2 { grid-template-columns: 1fr; } }
+  .banner { padding: 10px 14px; border-radius: 8px; margin: 8px 0; font-weight: 600; }
+  .banner.warn { background: #c6282833; border: 1px solid #c62828; }
+  .banner.info { background: #1565c022; border: 1px solid #1565c0; }
+  .muted { opacity: .65; }
+  .nowrap { white-space: nowrap; }
+  details { margin-top: 8px; }
+  details textarea, .sim-row input[type=text] { width: 100%; }
+  .sim-row .gap { width: 70px; }
+  .sim-row .n { width: 34px; text-align: right; opacity: .7; }
+  #drill-error { color: #c62828; font-size: .85rem; min-height: 1.2em; }
+  .small { font-size: .8rem; }
 </style>
 </head>
 <body>
@@ -40,25 +64,114 @@
     <div class="big" id="target">{{ target }}</div></div>
   <div class="card"><div class="label">接收器 A</div><div class="big" style="font-size:1rem">{{ receivers["A"] }}</div></div>
   <div class="card"><div class="label">接收器 B</div><div class="big" style="font-size:1rem">{{ receivers["B"] }}</div></div>
-  <div class="card"><div class="label">会话空闲超时</div><div class="big" style="font-size:1rem">{{ idle_timeout }} s</div></div>
-  <div class="card"><div class="label">终端发送地址（UDP）</div><div class="big" style="font-size:1rem">本机 :{{ udp_listen_port }}</div></div>
+  <div class="card"><div class="label">普通 UDP 端口</div><div class="big" style="font-size:1rem">:{{ udp_listen_port }}</div></div>
+  <div class="card"><div class="label">演练 UDP 端口（仅演练期开放）</div><div class="big" style="font-size:1rem">:{{ drill_udp_port }}</div></div>
 </div>
 
 {% with messages = get_flashed_messages(with_categories=true) %}
   {% for cat, msg in messages %}<div class="flash {{ cat }}">{{ msg }}</div>{% endfor %}
 {% endwith %}
 
+<!-- ==================== 演练控制台 ==================== -->
+<section id="drill-section">
+  <h2>固件联调演练（故障复现：收首条不回、等重传再回）</h2>
+  <p class="hint">
+    选择接收器并编排 2～8 步回包动作；接收器确认就绪后代理才开放专用 UDP 演练端口。
+    一轮只接纳首个测试终端，接收器按实收顺序执行（同文重发也占下一步），
+    步骤用完后不再接纳演练报文；手动停止或端口开放满 10 秒立即结束并作废待发回包。
+    普通端口 <code>:{{ udp_listen_port }}</code> 照常收发，不消耗演练步骤。
+  </p>
+
+  <div class="grid2">
+    <!-- 编排 -->
+    <div>
+      <h3>① 选择接收器并编排步骤</h3>
+      <form id="drill-form" onsubmit="return false;">
+        <div class="row">
+          <label>接收器
+            <select id="d-receiver">
+              <option value="A">A</option>
+              <option value="B">B</option>
+            </select>
+          </label>
+          <span class="hint">延迟回包最长 <span id="d-max-delay-hint">2</span> 秒，步数 2～<span id="d-max-steps-hint">8</span></span>
+        </div>
+        <div id="d-steps"></div>
+        <div class="row">
+          <button type="button" id="d-add-step">＋ 增加一步</button>
+          <button type="button" class="primary" id="d-start">开始演练</button>
+          <button type="button" class="danger" id="d-stop" disabled>手动停止</button>
+        </div>
+        <div id="drill-error"></div>
+      </form>
+
+      <h3>② 模拟终端（连发真实 UDP 报文到演练端口）</h3>
+      <div class="row">
+        <label>固定本地端口 <input id="sim-port" type="number" min="1" max="65535"
+                                    placeholder="留空=随机" style="width:110px"></label>
+        <button type="button" id="sim-add">＋ 增加报文</button>
+        <button type="button" class="primary" id="sim-send">连发到演练端口</button>
+      </div>
+      <div id="sim-msgs"></div>
+      <p class="hint">“间隔(s)”指本条发出后等待多久再发下一条；同文重发可直接复制报文内容——
+        重发也会占用接收器下一步。轮结束前可继续发送（未超步数时）。</p>
+    </div>
+
+    <!-- 状态 -->
+    <div>
+      <h3>③ 本轮状态</h3>
+      <div id="drill-status" class="card">
+        <div class="muted small">暂无演练</div>
+      </div>
+      <div id="drill-banner"></div>
+    </div>
+  </div>
+
+  <div class="grid2">
+    <div>
+      <h3>④ 接收器逐步实收（原文 + 执行动作）</h3>
+      <table>
+        <thead><tr><th>#</th><th>步骤</th><th>实收原文</th><th>执行动作</th><th>延迟(s)</th></tr></thead>
+        <tbody id="d-recvs"><tr><td colspan="5" class="muted">暂无数据</td></tr></tbody>
+      </table>
+    </div>
+    <div>
+      <h3>⑤ 终端实收回包（按实收顺序）</h3>
+      <table>
+        <thead><tr><th>顺序</th><th>到达时间</th><th>回包原文</th><th>来源步骤</th></tr></thead>
+        <tbody id="d-replies"><tr><td colspan="4" class="muted">暂无数据</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <details>
+    <summary class="small">事件流（转发、丢弃、停止确认等，共 <span id="d-event-count">0</span> 条）</summary>
+    <table>
+      <thead><tr><th>时间</th><th>事件</th><th>明细</th></tr></thead>
+      <tbody id="d-events"></tbody>
+    </table>
+  </details>
+
+  <details>
+    <summary class="small">历史轮次（最近 10 轮，旧回包不会进入下一轮）</summary>
+    <table>
+      <thead><tr><th>轮次</th><th>接收器</th><th>开始</th><th>结束</th><th>结束原因</th><th>停止确认</th><th>终端</th><th>转发/步数</th></tr></thead>
+      <tbody id="d-history"><tr><td colspan="8" class="muted">暂无历史</td></tr></tbody>
+    </table>
+  </details>
+</section>
+
 <section>
-  <h2>切换目标接收器</h2>
+  <h2>切换目标接收器（普通端口）</h2>
   <form method="post" action="{{ url_for('switch') }}">
     <button type="submit" name="target" value="A" {% if target == "A" %}disabled{% endif %}>切换到 A</button>
     <button type="submit" name="target" value="B" {% if target == "B" %}disabled{% endif %}>切换到 B</button>
   </form>
-  <p class="hint">切换只影响之后新建的会话；已存在的会话继续走原接收器，直到空闲 {{ idle_timeout }} 秒过期。保存失败时保留原目标。</p>
+  <p class="hint">切换只影响之后新建的会话；已存在的会话继续走原接收器，直到空闲 {{ idle_timeout }} 秒过期。保存失败时保留原目标。演练接收器在演练表单中单独选择，与此处无关。</p>
 </section>
 
 <section>
-  <h2>发送试传报文</h2>
+  <h2>普通端口试传报文（不消耗演练步骤）</h2>
   <form method="post" action="{{ url_for('test') }}">
     <div class="row">
       <label>报文 <input name="payload" value="PING" size="24"></label>
@@ -67,7 +180,7 @@
       <label>固定客户端端口 <input name="client_port" type="number" min="1" max="65535" placeholder="留空=随机" style="width:110px"></label>
       <button type="submit">发送</button>
     </div>
-    <p class="hint">不填端口时每次试传都用新端口（总是新会话）。填同一端口可观察：空闲 {{ idle_timeout }} 秒内复用旧会话（仍走旧接收器）；超时后同端口重建会话，也收不到旧会话迟到的回包。</p>
+    <p class="hint">走普通 UDP 端口 <code>:{{ udp_listen_port }}</code>，与演练相互独立。</p>
   </form>
   {% if last_test %}
   <div class="card" style="margin-top:10px">
@@ -84,7 +197,7 @@
 </section>
 
 <section>
-  <h2>活动会话 <span class="hint">（每 2 秒自动刷新）</span></h2>
+  <h2>普通端口活动会话 <span class="hint">（自动刷新）</span></h2>
   <table>
     <thead><tr><th>ID</th><th>客户端</th><th>固定接收器</th><th>上游端口</th><th>状态</th><th>空闲(s)</th><th>存活(s)</th></tr></thead>
     <tbody id="sessions"><tr><td colspan="7">加载中…</td></tr></tbody>
@@ -92,7 +205,7 @@
 </section>
 
 <section>
-  <h2>报文日志（实际去向与回包） <span class="hint">（最近 100 条，每 2 秒自动刷新）</span></h2>
+  <h2>普通端口报文日志（实际去向与回包） <span class="hint">（最近 100 条，自动刷新）</span></h2>
   <table>
     <thead><tr><th>#</th><th>时间</th><th>客户端</th><th>会话</th><th>方向</th><th>接收器</th><th>报文内容</th><th>备注</th></tr></thead>
     <tbody id="messages"><tr><td colspan="8">加载中…</td></tr></tbody>
@@ -101,6 +214,247 @@
 
 <script>
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
+
+// ---------------- 演练步骤编排 ----------------
+const ACTIONS = [
+  {v: 'immediate', t: '立即回包'},
+  {v: 'delay', t: '延迟回包'},
+  {v: 'drop', t: '不回包'},
+];
+let MAX_STEPS = 8, MIN_STEPS = 2, MAX_DELAY = 2.0;
+const stepsBox = document.getElementById('d-steps');
+
+function actionOptions(sel) {
+  return ACTIONS.map(a => `<option value="${a.v}" ${a.v === sel ? 'selected' : ''}>${a.t}</option>`).join('');
+}
+function addStep(action = 'immediate', delay = 0.5) {
+  if (stepsBox.children.length >= MAX_STEPS) return;
+  const row = document.createElement('div');
+  row.className = 'step-row';
+  row.innerHTML =
+    `<span class="idx">第 ${stepsBox.children.length + 1} 步</span>` +
+    `<select class="s-action">${actionOptions(action)}</select>` +
+    `<label class="s-delay-wrap">延迟(秒) <input type="number" class="s-delay" min="0.05" max="${MAX_DELAY}" step="0.05" value="${delay}"></label>` +
+    `<button type="button" class="s-del small">删除</button>`;
+  row.querySelector('.s-del').onclick = () => {
+    if (stepsBox.children.length <= MIN_STEPS) return;
+    row.remove();
+    reindexSteps();
+  };
+  row.querySelector('.s-action').onchange = e => {
+    row.querySelector('.s-delay-wrap').style.display =
+      e.target.value === 'delay' ? '' : 'none';
+  };
+  row.querySelector('.s-delay-wrap').style.display = action === 'delay' ? '' : 'none';
+  stepsBox.appendChild(row);
+  reindexSteps();
+}
+function reindexSteps() {
+  [...stepsBox.children].forEach((r, i) =>
+    r.querySelector('.idx').textContent = `第 ${i + 1} 步`);
+  document.getElementById('d-add-step').disabled = stepsBox.children.length >= MAX_STEPS;
+}
+// 默认编排：第 1 步不回包（收下首条读数不回），第 2 步立即回包（等终端重传再回）
+addStep('drop');
+addStep('immediate');
+document.getElementById('d-add-step').onclick = () => addStep();
+
+function collectSteps() {
+  return [...stepsBox.children].map(r => ({
+    action: r.querySelector('.s-action').value,
+    delay: parseFloat(r.querySelector('.s-delay').value) || 0,
+  }));
+}
+
+// ---------------- 模拟终端报文编排 ----------------
+const simBox = document.getElementById('sim-msgs');
+function addSimRow(payload = 'READING-1', gap = 0.3) {
+  if (simBox.children.length >= 12) return;
+  const row = document.createElement('div');
+  row.className = 'sim-row';
+  row.innerHTML =
+    `<span class="n">#${simBox.children.length + 1}</span>` +
+    `<input type="text" class="m-payload" value="${esc(payload)}" maxlength="1400">` +
+    `<label>间隔(s) <input type="number" class="m-gap gap" min="0" max="10" step="0.1" value="${gap}"></label>` +
+    `<button type="button" class="m-del small">删</button>`;
+  row.querySelector('.m-del').onclick = () => { row.remove(); reindexSim(); };
+  simBox.appendChild(row);
+  reindexSim();
+}
+function reindexSim() {
+  [...simBox.children].forEach((r, i) => r.querySelector('.n').textContent = `#${i + 1}`);
+}
+addSimRow('READING-1', 0.3);
+addSimRow('READING-1', 0);   // 同文重发
+document.getElementById('sim-add').onclick = () => addSimRow();
+
+function drillError(msg) { document.getElementById('drill-error').textContent = msg || ''; }
+
+async function postJSON(url, body) {
+  const r = await fetch(url, {
+    method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  });
+  return r.json();
+}
+
+document.getElementById('d-start').onclick = async () => {
+  drillError('');
+  const steps = collectSteps();
+  for (const [i, s] of steps.entries()) {
+    if (s.action === 'delay' && !(s.delay > 0 && s.delay <= MAX_DELAY)) {
+      drillError(`第 ${i + 1} 步延迟须在 0~${MAX_DELAY} 秒之间`);
+      return;
+    }
+  }
+  try {
+    const res = await postJSON('/api/drill/start', {
+      receiver: document.getElementById('d-receiver').value, steps,
+    });
+    if (!res.ok) drillError(res.error || '启动失败');
+  } catch (e) { drillError(String(e)); }
+};
+
+document.getElementById('d-stop').onclick = async () => {
+  drillError('');
+  try {
+    const res = await postJSON('/api/drill/stop', {});
+    if (res.acked === false) drillError('停止未确认：无法联系接收器，请人工核对');
+    if (!res.ok && res.error) drillError(res.error);
+  } catch (e) { drillError('停止请求失败：' + e); }
+};
+
+document.getElementById('sim-send').onclick = async () => {
+  drillError('');
+  const payloads = [...simBox.children].map(r => ({
+    payload: r.querySelector('.m-payload').value,
+    gap: parseFloat(r.querySelector('.m-gap').value) || 0,
+  })).filter(p => p.payload.length > 0);
+  const local_port = document.getElementById('sim-port').value;
+  try {
+    const res = await postJSON('/api/drill/sim', {payloads, local_port});
+    if (!res.ok) drillError(res.error || '发送失败');
+  } catch (e) { drillError(String(e)); }
+};
+
+// ---------------- 状态渲染 ----------------
+const EVENT_LABELS = {
+  'round-arming': '下发武装',
+  'receiver-ready': '接收器就绪',
+  'drill-port-open': '演练端口开放',
+  'terminal-locked': '锁定首个终端',
+  'forwarded': '转发到接收器',
+  'receiver-recv': '接收器实收',
+  'receiver-action': '执行动作',
+  'receiver-reply': '接收器回包',
+  'receiver-drop': '接收器丢弃',
+  'receiver-cancelled': '作废待发回包',
+  'receiver-terminal-locked': '接收器锁定终端',
+  'reply-to-terminal': '回包送达终端',
+  'drill-drop': '代理丢弃演练报文',
+  'control-lost': '控制通道丢失',
+  'round-ended': '本轮结束',
+};
+function eventDetail(e) {
+  const parts = [];
+  if (e.preview) parts.push('原文=' + e.preview);
+  if (e.action_label) parts.push('动作=' + e.action_label + (e.delay ? `(${e.delay}s)` : ''));
+  if (e.reason_label) parts.push(e.reason_label);
+  if (e.terminal) parts.push('终端=' + e.terminal);
+  if (e.reason) parts.push('原因=' + e.reason);
+  if (e.stop_acked === true) parts.push('接收器已确认停止');
+  if (e.stop_acked === false) parts.push('停止未确认');
+  if (Array.isArray(e.cancelled_seqs) && e.cancelled_seqs.length)
+    parts.push('作废步骤=' + e.cancelled_seqs.map(s => s + 1).join(','));
+  if (e.note) parts.push(e.note);
+  return parts.join('；');
+}
+
+function renderDrill(d) {
+  // 以后端配置为准（环境变量可调）
+  MAX_STEPS = d.max_steps || MAX_STEPS;
+  MIN_STEPS = d.min_steps || MIN_STEPS;
+  MAX_DELAY = d.max_delay || MAX_DELAY;
+  document.getElementById('d-max-delay-hint').textContent = MAX_DELAY;
+  document.getElementById('d-max-steps-hint').textContent = MAX_STEPS;
+  reindexSteps();
+  const cur = d.current;
+  const formDisabled = cur && cur.state !== 'ended';
+  document.getElementById('d-start').disabled = !!formDisabled;
+  document.getElementById('d-stop').disabled = !(cur && cur.state === 'running');
+  document.getElementById('d-receiver').disabled = !!formDisabled;
+  document.getElementById('sim-send').disabled = !(cur && cur.state === 'running');
+
+  // 状态卡
+  const box = document.getElementById('drill-status');
+  if (!cur) {
+    box.innerHTML = '<div class="muted small">暂无演练，编排步骤后点击“开始演练”</div>';
+  } else {
+    const stateCls = cur.state === 'running' ? 'running'
+      : cur.state === 'arming' ? 'arming' : 'ended';
+    const stateText = cur.state === 'running' ? `进行中（剩 ${cur.remain_seconds}s）`
+      : cur.state === 'arming' ? '武装中…' : '已结束';
+    box.innerHTML =
+      `<div><span class="pill ${stateCls}">${stateText}</span>
+         接收器 <b>${esc(cur.receiver)}</b>
+         <span class="muted small">轮次 ${esc(cur.round_id)}</span></div>
+       <div class="small" style="margin-top:6px">
+         终端：<code>${esc(cur.terminal || '未接入')}</code>${cur.sim_terminal ? '（模拟终端）' : ''}<br>
+         已转发 <b>${cur.recv_count}</b> / ${cur.steps.length} 步，剩余 ${cur.remaining_steps} 步<br>
+         演练端口：<code>:${d.udp_port}</code> ${cur.state === 'running' ? '已开放' : '未开放'}<br>
+         结束原因：${esc(cur.end_reason || '—')}；
+         停止确认：${cur.stop_acked === null ? '—' : cur.stop_acked ? '已确认' : '<b style="color:#c62828">未确认</b>'}
+       </div>`;
+  }
+
+  // 停止未确认横幅
+  const banner = document.getElementById('drill-banner');
+  if (cur && cur.stop_acked === false) {
+    banner.innerHTML = '<div class="banner warn">⚠ 停止未确认：无法联系接收器，'
+      + '接收器侧待发回包可能未作废，请人工核对接收器状态。</div>';
+  } else if (cur && cur.state === 'running') {
+    banner.innerHTML = '<div class="banner info small">演练进行中：专用端口已开放，'
+      + `满 ${cur.max_duration} 秒将自动结束；普通端口流量不受影响。</div>`;
+  } else {
+    banner.innerHTML = '';
+  }
+
+  // 逐步实收
+  const recvs = document.getElementById('d-recvs');
+  recvs.innerHTML = (cur && cur.recvs.length) ? cur.recvs.map(r =>
+    `<tr><td>${r.seq + 1}</td><td>第 ${r.step} 步</td><td>${esc(r.preview)}</td>` +
+    `<td>${esc(r.action_label || '（动作未回报）')}</td><td>${r.delay ? r.delay : ''}</td></tr>`
+  ).join('') : '<tr><td colspan="5" class="muted">暂无数据</td></tr>';
+
+  // 终端实收回包（终端实收顺序）
+  const reps = document.getElementById('d-replies');
+  reps.innerHTML = (cur && cur.sim_replies.length) ? cur.sim_replies.map((r, i) =>
+    `<tr><td>${i + 1}</td><td>${esc(r.ts)}</td><td>${esc(r.preview)}</td><td>—</td></tr>`
+  ).join('') : (cur && cur.replies.length
+    ? cur.replies.map((r, i) =>
+      `<tr><td>${i + 1}</td><td class="muted">${esc(r.ts)}</td><td>${esc(r.preview)}</td>` +
+      `<td>第 ${r.step ?? '?'} 步（接收器侧）</td></tr>`).join('')
+    : '<tr><td colspan="4" class="muted">暂无数据</td></tr>');
+
+  // 事件流
+  const evs = document.getElementById('d-events');
+  const events = cur ? [...cur.events].reverse() : [];
+  document.getElementById('d-event-count').textContent = cur ? cur.events.length : 0;
+  evs.innerHTML = events.map(e =>
+    `<tr><td class="nowrap">${esc(e.tss)}</td><td class="nowrap">${esc(EVENT_LABELS[e.kind] || e.kind)}</td>` +
+    `<td>${esc(eventDetail(e))}</td></tr>`).join('') || '';
+
+  // 历史
+  const hist = document.getElementById('d-history');
+  hist.innerHTML = d.history.length ? [...d.history].reverse().map(h =>
+    `<tr><td class="small">${esc(h.round_id)}</td><td>${esc(h.receiver)}</td>` +
+    `<td>${esc(h.started)}</td><td>${esc(h.ended)}</td><td>${esc(h.end_reason)}</td>` +
+    `<td>${h.stop_acked === null ? '—' : h.stop_acked ? '已确认' : '<b style="color:#c62828">未确认</b>'}</td>` +
+    `<td>${esc(h.terminal || '—')}</td><td>${h.recv_count}/${h.steps.length}</td></tr>`
+  ).join('') : '<tr><td colspan="8" class="muted">暂无历史</td></tr>';
+}
+
+// ---------------- 普通透传区域刷新 ----------------
 async function refresh() {
   try {
     const s = await (await fetch('/api/state')).json();
@@ -115,10 +469,11 @@ async function refresh() {
       `<td>${esc(m.direction)}</td><td>${esc(m.receiver)}</td><td>${esc(m.payload)}</td><td>${esc(m.note)}</td></tr>`);
     document.getElementById('messages').innerHTML =
       ms.join('') || '<tr><td colspan="8">（暂无日志）</td></tr>';
+    renderDrill(s.drill);
   } catch (e) { /* 下次再试 */ }
 }
 refresh();
-setInterval(refresh, 2000);
+setInterval(refresh, 1200);
 </script>
 </body>
 </html>

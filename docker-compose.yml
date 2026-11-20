@@ -4,8 +4,10 @@ services:
     container_name: telemetry-receiver-a
     environment:
       RECEIVER_NAME: A
-      LISTEN_PORT: "9001"
-      REPLY_DELAY: "0"          # 默认回包延迟（秒）；报文 "DELAY:<秒>:" 可单次覆盖
+      LISTEN_PORT: "9001"      # 普通 UDP：原样回显
+      DRILL_PORT: "9101"       # 演练 UDP（武装前静默）
+      CONTROL_PORT: "9201"     # 控制 TCP（代理下发步骤/停止）
+      REPLY_DELAY: "0"         # 普通端口默认回包延迟（秒）；报文 "DELAY:<秒>:" 可单次覆盖
     networks: [telemetry]
 
   receiver-b:
@@ -14,6 +16,8 @@ services:
     environment:
       RECEIVER_NAME: B
       LISTEN_PORT: "9001"
+      DRILL_PORT: "9101"
+      CONTROL_PORT: "9201"
       REPLY_DELAY: "0"
     networks: [telemetry]
 
@@ -21,18 +25,26 @@ services:
     build: ./proxy
     container_name: telemetry-proxy
     environment:
-      UDP_LISTEN_PORT: "9000"
+      UDP_LISTEN_PORT: "9000"             # 普通终端 UDP
+      DRILL_UDP_PORT: "9100"              # 演练专用 UDP（仅演练期间开放）
       HTTP_PORT: "8080"
-      SESSION_IDLE_TIMEOUT: "5"          # 会话空闲超时（秒）
+      SESSION_IDLE_TIMEOUT: "5"           # 会话空闲超时（秒）
       RECEIVER_A_HOST: receiver-a
       RECEIVER_A_PORT: "9001"
+      RECEIVER_A_DRILL_PORT: "9101"
+      RECEIVER_A_CONTROL_PORT: "9201"
       RECEIVER_B_HOST: receiver-b
       RECEIVER_B_PORT: "9001"
-      DB_PATH: /data/proxy.db            # 目标接收器持久化（重启保留）
-      # UPSTREAM_PORT_COOLDOWN: "30"     # 上游端口冷却，须大于最大回包延迟
+      RECEIVER_B_DRILL_PORT: "9101"
+      RECEIVER_B_CONTROL_PORT: "9201"
+      DB_PATH: /data/proxy.db             # 目标接收器持久化（重启保留）
+      # DRILL_MAX_DURATION: "10"          # 演练端口开放上限（秒）
+      # DRILL_MAX_DELAY: "2"              # 单步延迟回包上限（秒）
+      # UPSTREAM_PORT_COOLDOWN: "30"      # 上游端口冷却，须大于最大回包延迟
     ports:
-      - "9000:9000/udp"                  # 遥测终端发往这里
-      - "8080:8080"                      # 操作网页
+      - "9000:9000/udp"                   # 普通遥测终端发往这里
+      - "9100:9100/udp"                   # 演练专用端口（未演练时不开放）
+      - "8080:8080"                       # 操作网页
     volumes:
       - proxy-data:/data
     depends_on:

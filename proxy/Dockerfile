@@ -9,5 +9,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
 COPY templates templates
 
-EXPOSE 9000/udp 8080
+EXPOSE 9000/udp 9100/udp 8080
 CMD ["python", "app.py"]
